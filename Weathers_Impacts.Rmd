@@ -1,0 +1,253 @@
+---
+title: "Weather events and their impacts in the USA"
+author: "Mathias Barat"
+date: "21/09/2020"
+output: html_document
+---
+
+# 1 - Synopsis
+
+The present study is adressing several questions linked to the impacts dealt by weather events in the contemporary USA. We will focus mainly on the following points:
+
+  - Harmfulness of the events toward the population health
+  - Economic impacts of the events
+  
+The study is based on the NOAA Storm Database (URLs given hearafter) :
+
+```{r}
+url_storm_data <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+url_storm_doc <- "https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf"
+url_storm_faq <- "https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf"
+```
+
+The present study will answer to the following points:
+
+- Across the United States, which types of events (as indicated in the \color{red}{\verb|EVTYPE|}EVTYPE variable) are most harmful with respect to population health?
+
+- Across the United States, which types of events have the greatest economic consequences?
+
+# 2 - DATA-PROCESSING
+
+### PREPARATION
+
+```{r}
+library(ggplot2)
+library(plyr)
+library(dplyr)
+```
+
+
+### DATA LOADING
+
+```{r}
+
+if (!dir.exists("data/")){dir.create("data/")}
+if (!file.exists("data/storm_data.csv")){
+  download.file(url_storm_data, destfile = "data/storm_data.csv")
+  download.file(url_storm_doc, destfile = "data/storm_doc.pdf")
+  download.file(url_storm_faq, destfile = "data/storm_faq.pdf")
+}
+
+storm_data <- read.csv("data/storm_data.csv")
+
+```
+
+### DATA STRUCTURE
+
+Here is some information about the RAW dataset :
+
+```{r}
+dim(storm_data)
+```
+There is 902297 observations for 37 variables.
+
+```{r}
+head(storm_data)
+```
+```{r}
+str(storm_data)
+```
+
+### Extract Data Variables of Interests
+
+We can see that a lot of variables are not useful for our study (empty or not relevant). I am capitalizing hereafter the variables I will keep for my analysis:
+
+### Health Variables:
+  - FATALITIES
+  - INJURIES
+
+### Economics Variables:
+  - PROPDMG
+  - PROPDMGEXP
+  - CROPDMG
+  - CROPDMGEXP
+  
+### Study Variables:
+  - STATE
+  - EVTYPE
+
+
+```{r}
+Cols_to_keep <- c("STATE", "EVTYPE","FATALITIES", "INJURIES", "PROPDMG","PROPDMGEXP", "CROPDMG", "CROPDMGEXP")
+storm_data_wip <- storm_data[ ,Cols_to_keep]
+```
+
+### Check NA
+
+```{r}
+sum(is.na(storm_data_wip))
+```
+There is no NA in the filtered dataset
+
+### Clean EVTYPE
+
+In order to be more accurate, we will regroup the EVTYPE has too much similar observations which can be packed
+
+Creation of storm_data_wip$EVENT
+```{r}
+storm_data_wip$EVENT <- "OTHER"
+storm_data_wip$EVENT[grep("HAIL", storm_data_wip$EVTYPE, ignore.case = TRUE)] <- "HAIL"
+storm_data_wip$EVENT[grep("WIND", storm_data_wip$EVTYPE, ignore.case = TRUE)] <- "WIND"
+storm_data_wip$EVENT[grep("TORNADO", storm_data_wip$EVTYPE, ignore.case = TRUE)] <- "TORNADO"
+storm_data_wip$EVENT[grep("FLOOD", storm_data_wip$EVTYPE, ignore.case = TRUE)] <- "FLOOD"
+storm_data_wip$EVENT[grep("LIGHTNING", storm_data_wip$EVTYPE, ignore.case = TRUE)] <- "LIGHTNING"
+storm_data_wip$EVENT[grep("SNOW", storm_data_wip$EVTYPE, ignore.case = TRUE)] <- "SNOW"
+storm_data_wip$EVENT[grep("RAIN", storm_data_wip$EVTYPE, ignore.case = TRUE)] <- "RAIN"
+storm_data_wip$EVENT[grep("STORM", storm_data_wip$EVTYPE, ignore.case = TRUE)] <- "STORM"
+storm_data_wip$EVENT[grep("TSTM", storm_data_wip$EVTYPE, ignore.case = TRUE)] <- "THUNDERSTORM"
+storm_data_wip$EVENT[grep("THUNDERSTORM", storm_data_wip$EVTYPE, ignore.case = TRUE)] <- "THUNDERSTORM"
+storm_data_wip$EVENT[grep("FIRE", storm_data_wip$EVTYPE, ignore.case = TRUE)] <- "FIRE"
+storm_data_wip$EVENT[grep("FOG", storm_data_wip$EVTYPE, ignore.case = TRUE)] <- "FOG"
+storm_data_wip$EVENT[grep("BLIZZARD", storm_data_wip$EVTYPE, ignore.case = TRUE)] <- "BLIZZARD"
+storm_data_wip$EVENT[grep("HEAT", storm_data_wip$EVTYPE, ignore.case = TRUE)] <- "HEAT"
+storm_data_wip$EVENT[grep("FUNNEL CLOUD", storm_data_wip$EVTYPE, ignore.case = TRUE)] <- "FUNNEL CLOUD"
+storm_data_wip$EVENT[grep("COLD", storm_data_wip$EVTYPE, ignore.case = TRUE)] <- "COLD"
+storm_data_wip$EVENT[grep("WATERSPOUT", storm_data_wip$EVTYPE, ignore.case = TRUE)] <- "WATERSPOUT"
+```
+
+### Dollar conversion
+
+As the amount of damages are expressed with expression such as K, M, B in the ...EXP columns.
+We need to create first columns with actual dollars:
+
+```{r}
+storm_data_wip$PROPDMGEXP <- as.character(storm_data_wip$PROPDMGEXP)
+storm_data_wip$PROPDMGEXP[is.na(storm_data_wip$PROPDMGEXP)] <- 0
+storm_data_wip$PROPDMGEXP[!grepl("K|M|B", storm_data_wip$PROPDMGEXP, ignore.case = TRUE)] <- 0
+storm_data_wip$PROPDMGEXP[grep("K", storm_data_wip$PROPDMGEXP, ignore.case = TRUE)] <- "3"
+storm_data_wip$PROPDMGEXP[grep("M", storm_data_wip$PROPDMGEXP, ignore.case = TRUE)] <- "6"
+storm_data_wip$PROPDMGEXP[grep("B", storm_data_wip$PROPDMGEXP, ignore.case = TRUE)] <- "9"
+storm_data_wip$PROPDMGEXP <- as.numeric(as.character(storm_data_wip$PROPDMGEXP))
+storm_data_wip$PROPDMG <- as.numeric(as.character(storm_data_wip$PROPDMG))
+storm_data_wip$PROPDMG.DOLLAR <- storm_data_wip$PROPDMG * 10^storm_data_wip$PROPDMGEXP
+
+storm_data_wip$CROPDMGEXP <- as.character(storm_data_wip$CROPDMGEXP)
+storm_data_wip$CROPDMGEXP[is.na(storm_data_wip$CROPDMGEXP)] <- 0 # NA's considered as dollars
+storm_data_wip$CROPDMGEXP[!grepl("K|M|B", storm_data_wip$CROPDMGEXP, ignore.case = TRUE)] <- 0
+storm_data_wip$CROPDMGEXP[grep("K", storm_data_wip$CROPDMGEXP, ignore.case = TRUE)] <- "3"
+storm_data_wip$CROPDMGEXP[grep("M", storm_data_wip$CROPDMGEXP, ignore.case = TRUE)] <- "6"
+storm_data_wip$CROPDMGEXP[grep("B", storm_data_wip$CROPDMGEXP, ignore.case = TRUE)] <- "9"
+storm_data_wip$CROPDMGEXP <- as.numeric(as.character(storm_data_wip$CROPDMGEXP))
+storm_data_wip$CROPDMG.DOLLAR <- storm_data_wip$CROPDMG * 10^storm_data_wip$CROPDMGEXP
+```
+
+### Health Data Preparation
+
+```{r}
+Mycolnames <- c("EVENT", "TOTAL", "TYPE") 
+most_dangerous_events.injuries <- aggregate( INJURIES ~ EVENT , storm_data_wip, sum)
+most_dangerous_events.injuries$TYPE <- "INJURIES"
+colnames(most_dangerous_events.injuries) <- Mycolnames
+
+most_dangerous_events.fatalities <- aggregate( FATALITIES ~ EVENT , storm_data_wip, sum)
+most_dangerous_events.fatalities$TYPE <- "FATALITIES"
+colnames(most_dangerous_events.fatalities)  <- Mycolnames
+
+most_dangerous_events <- rbind(most_dangerous_events.fatalities, most_dangerous_events.injuries)
+
+```
+
+### Damage Data Preparation
+
+```{r}
+
+damages.prop <- aggregate( PROPDMG.DOLLAR ~ EVENT , storm_data_wip, sum)
+damages.prop$TYPE <- "PROP"
+colnames(damages.prop) <- Mycolnames
+
+damages.crop <- aggregate( CROPDMG.DOLLAR ~ EVENT , storm_data_wip, sum)
+damages.crop$TYPE <- "CROP"
+colnames(damages.crop)  <- Mycolnames
+
+damages <- rbind(damages.prop, damages.crop)
+
+```
+
+# 3 - RESULTS
+
+### EVENTS ANALYSIS
+
+```{r}
+frequent_events <- as.data.frame(sort(table(storm_data_wip$EVENT), decreasing=TRUE)[1:30])
+```
+#### Global numbers for health:
+
+Total amount of fatalities in the dataset:
+```{r}
+sum(storm_data_wip$FATALITIES)
+```
+Total amount of injuries in the dataset:
+```{r}
+sum(storm_data_wip$INJURIES)
+```
+## GEOGRAPHICAL ANALYSIS
+
+```{r}
+most_impacted_states.events <- as.data.frame(with(storm_data_wip, table(EVENT,STATE)))
+most_impacted_states.events <- most_impacted_states.events[order(most_impacted_states.events$Freq, decreasing = TRUE),]
+```
+```{r}
+ggplot(most_impacted_states.events[1:100,] , aes(reorder(STATE, -Freq) ,Freq, fill = EVENT)) +
+  geom_bar(stat='identity') +
+  ylab("Count of Events")+
+  xlab("States")+
+  theme(axis.text.x=element_text(angle=90,hjust = 1))+
+  ggtitle("Top 100 Most Frequent Events by States", subtitle = "Based on the NOAA Storm Database - 1950 to nowadays")
+```
+
+## HARMFULNESS ANALYSIS
+
+
+```{r}
+
+ggplot(most_dangerous_events , aes(EVENT, TOTAL , fill = TYPE)) +
+  geom_bar(stat='identity') +
+  ylab("Injuries + Fatalities")+
+  xlab("Weather Events")+
+  theme(axis.text.x=element_text(angle=90,hjust = 1))+
+  ggtitle("People Deaths and Injuries caused by Weather Events in USA", subtitle = "Based on the NOAA Storm Database - 1950 to nowadays")
+
+```
+
+### Sum-up
+
+Tornados are far more the most dangerous weather events USA is dealing with. They are responsible of more than 90000 injuries and more than 5000 fatalities.
+
+Heat has a high amount of fatalities as it has killed more than 3000 people since 1950.
+Floods are closing the top killers with around 1500 deaths.
+
+## DAMAGE ANALYSIS
+
+```{r}
+
+ggplot(damages , aes(EVENT, TOTAL , fill = TYPE)) +
+  geom_bar(stat='identity') +
+  ylab("Total Damage in Dollars")+
+  xlab("Weather Events")+
+  theme(axis.text.x=element_text(angle=90,hjust = 1))+
+  ggtitle("People Deaths and Injuries caused by Weather Events in USA", subtitle = "Based on the NOAA Storm Database - 1950 to nowadays")
+
+```
+### Sum-up
+
+Floods caused more than 170 Billion dollars of damages since 1950.

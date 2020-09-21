@@ -1,1 +1,2 @@
-# Reporducible_Research_Course_Project_2
+# EDA-Peer-graded-Assignment-Course-Project-1
+EDA Peer-graded Assignment: Course Project 1
